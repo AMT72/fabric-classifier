@@ -1,0 +1,85 @@
+name: Deploy Teachable Machine Fabric Classifier
+
+on:
+  push:
+    branches:
+      - main  # أو اسم الفرع اللي شغال عليه
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create index.html
+        run: |
+          mkdir public
+          cat > public/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>Fabric Classifier</title>
+            <script type="module">
+              import * as tmImage from "https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js";
+              const URL = "./";
+              let model, webcam, labelContainer, maxPredictions;
+
+              async function init() {
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                const flip = true;
+                webcam = new tmImage.Webcam(200, 200, flip);
+                await webcam.setup();
+                await webcam.play();
+                window.requestAnimationFrame(loop);
+
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                labelContainer = document.getElementById("label-container");
+                for (let i = 0; i < maxPredictions; i++) {
+                  labelContainer.appendChild(document.createElement("div"));
+                }
+              }
+
+              async function loop() {
+                webcam.update();
+                await predict();
+                window.requestAnimationFrame(loop);
+              }
+
+              async function predict() {
+                const prediction = await model.predict(webcam.canvas);
+                for (let i = 0; i < maxPredictions; i++) {
+                  const classPrediction =
+                    prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(2) + "%";
+                  labelContainer.childNodes[i].innerHTML = classPrediction;
+                }
+              }
+
+              window.onload = init;
+            </script>
+          </head>
+          <body>
+            <h1>Fabric Classifier</h1>
+            <div id="webcam-container"></div>
+            <div id="label-container"></div>
+          </body>
+          </html>
+          EOF
+
+      - name: Copy Teachable Machine Files
+        run: |
+          cp model.json public/
+          cp metadata.json public/
+          cp model.weights.bin public/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
