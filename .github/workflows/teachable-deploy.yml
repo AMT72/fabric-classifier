@@ -1,85 +1,91 @@
-name: Deploy Teachable Machine Fabric Classifier
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fabric Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f4f8;
+      text-align: center;
+      padding: 40px;
+    }
+    h1 {
+      color: #2c3e50;
+      font-size: 36px;
+    }
+    input[type="file"] {
+      background-color: #2980b9;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 20px;
+    }
+    #prediction {
+      margin-top: 30px;
+      font-size: 22px;
+      color: #34495e;
+      font-weight: bold;
+    }
+    img {
+      margin-top: 20px;
+      max-width: 300px;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Fabric Classifier</h1>
 
-on:
-  push:
-    branches:
-      - main  # أو اسم الفرع اللي شغال عليه
+  <input type="file" accept="image/*" onchange="handleImage(event)"><br>
+  <img id="preview" src="#" alt="Image preview" style="display:none;">
+  <div id="prediction"></div>
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+  <script>
+    const URL = "https://teachablemachine.withgoogle.com/models/XXXXXXX/"; // ← غيّر الرابط هنا
+    let model, maxPredictions;
 
-      - name: Create index.html
-        run: |
-          mkdir public
-          cat > public/index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>Fabric Classifier</title>
-            <script type="module">
-              import * as tmImage from "https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js";
-              const URL = "./";
-              let model, webcam, labelContainer, maxPredictions;
+    async function loadModel() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
+    }
 
-              async function init() {
-                const modelURL = URL + "model.json";
-                const metadataURL = URL + "metadata.json";
+    loadModel();
 
-                model = await tmImage.load(modelURL, metadataURL);
-                maxPredictions = model.getTotalClasses();
+    async function handleImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
 
-                const flip = true;
-                webcam = new tmImage.Webcam(200, 200, flip);
-                await webcam.setup();
-                await webcam.play();
-                window.requestAnimationFrame(loop);
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const img = document.getElementById("preview");
+        img.src = e.target.result;
+        img.style.display = "block";
 
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-                labelContainer = document.getElementById("label-container");
-                for (let i = 0; i < maxPredictions; i++) {
-                  labelContainer.appendChild(document.createElement("div"));
-                }
-              }
+        const imageElement = new Image();
+        imageElement.src = e.target.result;
 
-              async function loop() {
-                webcam.update();
-                await predict();
-                window.requestAnimationFrame(loop);
-              }
+        imageElement.onload = async function() {
+          const prediction = await model.predict(imageElement);
+          prediction.sort((a, b) => b.probability - a.probability);
+          const top = prediction[0];
 
-              async function predict() {
-                const prediction = await model.predict(webcam.canvas);
-                for (let i = 0; i < maxPredictions; i++) {
-                  const classPrediction =
-                    prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(2) + "%";
-                  labelContainer.childNodes[i].innerHTML = classPrediction;
-                }
-              }
-
-              window.onload = init;
-            </script>
-          </head>
-          <body>
-            <h1>Fabric Classifier</h1>
-            <div id="webcam-container"></div>
-            <div id="label-container"></div>
-          </body>
-          </html>
-          EOF
-
-      - name: Copy Teachable Machine Files
-        run: |
-          cp model.json public/
-          cp metadata.json public/
-          cp model.weights.bin public/
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
+          document.getElementById("prediction").innerHTML =
+            `النوع المتوقع: <strong>${top.className}</strong><br>النسبة: ${(top.probability * 100).toFixed(2)}%<br><br>` +
+            (top.probability >= 0.75
+              ? `💡 يبدو بثقة أنه من نوع <strong>${top.className}</strong>`
+              : `⚠️ غير متأكد، ربما يكون <strong>${top.className}</strong>`);
+        };
+      };
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>
